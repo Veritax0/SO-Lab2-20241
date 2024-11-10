@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 #define MAX_PATHS 10
 #define MAX_ARGS 100
@@ -12,23 +13,71 @@ char *path[MAX_PATHS]; // Array para almacenar las rutas de búsqueda
 int path_count = 0;    // Contador de rutas en path
 char error_message[] = "An error has occurred\n";
 
-// Función para ejecutar comandos externos
+// Función para ejecutar comandos externos con soporte de redirección
 void execute_command(char **args) {
+    int redirect_index = -1;
+
+    // Buscar el operador de redirección '>'
+    for (int i = 0; args[i] != NULL; i++) {
+        if (strcmp(args[i], ">") == 0) {
+            redirect_index = i;
+            break;
+        }
+    }
+
+    // Configurar la redirección si se encuentra '>'
+    int saved_stdout = -1;
+    if (redirect_index != -1) {
+        // Verificar que exista un archivo de destino después de '>'
+        if (args[redirect_index + 1] == NULL || args[redirect_index + 2] != NULL) {
+            write(STDERR_FILENO, error_message, strlen(error_message));
+            return;
+        }
+
+        // Abrir el archivo para redirigir la salida
+        int fd = open(args[redirect_index + 1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd == -1) {
+            write(STDERR_FILENO, error_message, strlen(error_message));
+            return;
+        }
+
+        // Guardar stdout y redirigir la salida
+        saved_stdout = dup(STDOUT_FILENO);
+        dup2(fd, STDOUT_FILENO);
+        close(fd);
+
+        // Terminar la lista de argumentos en el operador '>'
+        args[redirect_index] = NULL;
+    }
+
+    // Intentar ejecutar el comando en cada directorio de `path`
+    int found = 0;
     for (int i = 0; i < path_count; i++) {
         char exec_path[1024];
         snprintf(exec_path, sizeof(exec_path), "%s/%s", path[i], args[0]);
 
         if (access(exec_path, X_OK) == 0) {
+            found = 1;
             if (fork() == 0) {
                 execv(exec_path, args);
                 exit(0);
             } else {
                 wait(NULL);
             }
-            return;
+            break;
         }
     }
-    write(STDERR_FILENO, error_message, strlen(error_message));
+
+    // Si no se encontró el comando en ninguna ruta
+    if (!found) {
+        write(STDERR_FILENO, error_message, strlen(error_message));
+    }
+
+    // Restaurar stdout si fue redirigido
+    if (saved_stdout != -1) {
+        dup2(saved_stdout, STDOUT_FILENO);
+        close(saved_stdout);
+    }
 }
 
 // Función para procesar y ejecutar un comando
@@ -36,6 +85,13 @@ void process_command(char *line) {
     char *args[MAX_ARGS];
     int arg_count = 0;
     char *token = strtok(line, " \t\n");
+
+    // Salta si el único comando es '&'
+    if (token != NULL && strcmp(token, "&") == 0 && strtok(NULL, " \t\n") == NULL) {
+        return; // Ignorar '&' como único comando
+    }
+
+    // Tokenizar la línea de entrada en argumentos
     while (token != NULL && arg_count < MAX_ARGS - 1) {
         args[arg_count++] = token;
         token = strtok(NULL, " \t\n");
