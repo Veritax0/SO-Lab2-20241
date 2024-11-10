@@ -1,3 +1,7 @@
+// Integrantes:
+// Juan Manuel Vera Osorio  CC 1000416823
+// Valentina Cadena Zapata  CC 1000099120
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
