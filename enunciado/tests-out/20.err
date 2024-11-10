@@ -1,2 +1,0 @@
-free(): invalid pointer
-../tester/run-tests.sh: línea 23: 12471 Abortado                (`core' generado) ./wish tests/20.in
